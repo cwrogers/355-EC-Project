@@ -1,11 +1,14 @@
 
 let windowWidth = 800;
 let windowHeight = 800;
-let cellSize =8;
+let cellSize = 8;
 
 let cellArray = Array.from(Array(windowWidth), () => Array(windowHeight).fill(0));
+let btn;
 
 function setup() {
+    noStroke();
+    colorMode(HSB, 100);
     createCanvas(windowWidth, windowHeight);
     for (var i = 0; i < windowWidth / cellSize; i++) {
         for (var j = 0; j < windowHeight / cellSize; j++) {
@@ -13,6 +16,9 @@ function setup() {
             cellArray[i][j] = new Cell(i, j);
         }
     }
+
+    btn = createButton('PLAY');
+    btn.mousePressed(toggleState);
 }
 
 var c = 0;
@@ -28,16 +34,36 @@ function draw() {
     }
 }
 
+function mouseDragged() {
+    let x = Math.floor(mouseX / cellSize);
+    let y = Math.floor(mouseY / cellSize);
+    if(x >= 0 && x < windowWidth / cellSize && y >= 0 && y < windowHeight / cellSize){
+        cellArray[x][y].setFire();
+    }
+}
 
 
+let Game = {
+    state: 'PAUSED',
+    s : ['PAUSED', 'PLAYING'],
+    c : 0,
+}
 
 
+let toggleState = () => {
+    Game.state = Game.s[++Game.c % 2];
+    btn.value(Game.c % 2 == 0 ? 'PLAY' : 'PAUSE');
+}
 
+// lush to dry green colors
+let colors = [
+    "#00ff00",
+]
 
 let cellTypes = {
     'WET': {
         color: '#00FF00',
-        probability: 0.45,
+        probability: 0.60,
     },
     'DRY': {
         //brown
@@ -46,7 +72,7 @@ let cellTypes = {
     },
     'FLAME': {
         color: '#FF0000',
-        probability: 0.10,
+        probability: 0.00,
     },
     'BURNING': {
         color: '#FF7034',
@@ -54,11 +80,18 @@ let cellTypes = {
     },
     'BURNT': {
         color: '#606060',
-        probability: 0.05,
+        probability: 0.00,
     }
 }
 
 
+//2d perline noise
+let noise = (x, y) => {
+    let scale = 0.01;
+    let n = x * scale * 57 + y * scale  * 57;
+    n = (n << 13) ^ n;
+    return (1.0 - ((n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0);
+}
 
 
 class Cell {
@@ -70,16 +103,21 @@ class Cell {
         this.burningNeighbors = 0;
         this.x = x;
         this.y = y;
+        this.wetness = Math.random() * 100; 
         this.type = this.genType();
         this.burnCount = 0;
-        this.burnLife = Math.floor(Math.random() * 4) + 6;
-
+        this.burnLife = Math.floor(Math.random() * 20) + 40;
         this.deadCount = 0;
         this.deadLife = Math.floor(Math.random() * 4) + 6;
     }
 
 
+    setFire() {
+        this.type = 'FLAME';
+    }
+
     update() {
+        if(Game.state == 'PAUSED') return;
         this.checkNeighbors();
         this.applyRules();
     }
@@ -102,24 +140,21 @@ class Cell {
                 if (i == 0 && j == 0) {
                     continue;
                 }
-                var x;
-                var y;
-                if(this.x == 0 && i == -1) {
-                    x = windowWidth - 1;
-                } else if(this.x == windowWidth && i == 1) {
-                    x = 0;
-                } else {
-                    x = this.x + i;
-                }
-                if(this.y == 0 && j == -1) {
-                    y = windowHeight - 1;
-                } else if(this.y == windowHeight && j == 1) {
-                    y = 0;
-                } else {
-                    y = this.y + j;
-                }
 
-                
+                let x = this.x + i;
+                let y = this.y + j;
+                if (x < 0) {
+                    x = windowWidth / cellSize - 1;
+                }
+                if (x >= windowWidth / cellSize) {
+                    x = 0;
+                }
+                if (y < 0) {
+                    y = windowHeight / cellSize - 1;
+                }
+                if (y >= windowHeight / cellSize) {
+                    y = 0;
+                }
 
                 switch (cellArray[x][y].type) {
                     case 'WET':
@@ -142,31 +177,38 @@ class Cell {
     applyRules() {
         switch(this.type) {
             case 'WET':
+                if (this.wetness <= 0) {
+                    this.type = 'DRY';
+                    break;
+                }
                 if (this.burningNeighbors > 4) {
-                    this.type = 'FLAME';
+                    this.wetness -= 4;
+                } else if (this.burningNeighbors > 2) {
+                    this.wetness -= 1.5;
+                } else if(this.burningNeighbors > 0) {
+                    this.wetness -= .5;
                 }
                 break
             case 'DRY':
                 var r = Math.random();
                 if (this.burningNeighbors >= 3) {
-                    if(r < .5) this.type = 'FLAME';
-                } else {
-                    if(r < .01) this.type = 'FLAME';
+                    this.type = 'FLAME';
                 }
                 break;
             case 'FLAME':
                     this.type = 'BURNING';
-                    this.burnLife = Math.floor(Math.random() * 20) + 20;
+                    this.burnLife = Math.floor(Math.random() * 20) + 210;
                 break;
             case 'BURNING':
-                // if(this.burnCount++ >= this.burnLife) {
-                //     this.deadLife = Math.floor(Math.random() * 10) + 15;
-                //     this.type = 'BURNT';
-                // }
+                if(this.burnCount++ >= this.burnLife) {
+                    this.deadLife = Math.floor(Math.random() * 150) + 80;
+                    this.type = 'BURNT';
+                }
                 break;
             case 'BURNT':
-                if(this.deadCount++ == this.deadLife) {
+                if(this.deadCount++ >= this.deadLife) {
                     var r = Math.random();
+                    this.wetness = r * 100;
                     this.type = r < .5 ? 'WET' : 'DRY';
                 }
                 break;
